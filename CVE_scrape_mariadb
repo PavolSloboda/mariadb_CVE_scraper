@@ -1,0 +1,99 @@
+#!/usr/bin/env python
+
+from bs4 import BeautifulSoup
+import requests
+from datetime import datetime
+from os import listdir
+import subprocess
+import json
+import jsondiff
+
+# Holds the currently supported mariadb versions for
+# further filtering
+# NOTE: maybe take it from a file or an environment var?
+supported_versions = ['10.11', '11.8', '10.5', '10.3']
+
+# NOTE: maybe make this parametrized
+default_json_path = "/home/psloboda/.CVE_jsons/"
+
+creation_time = datetime.now()
+
+# set the filename of the output json to the current timestamp
+# formatted as int for easy comparison
+filename = f"{default_json_path}{int(creation_time.timestamp())}.json"
+
+# TODO: send the diff via email
+def send_diff(diff):
+    out = diff if diff else "No new finds"
+    subprocess.Popen(['notify-send', 'MariaDB CVE scan', f"{creation_time.date()}: {out}"])
+
+# checks whetehr the CVE contains any of our supported versions
+def check_versions(versions):
+    for supported_version in supported_versions:
+        for version in versions:
+            if supported_version in version:
+                return True
+    return False
+
+def get_last_result():
+    found_files = listdir(default_json_path)
+    files_without_suffix = [f.split('.')[0] for f in found_files if not '.diff' in f]
+
+    return f"{max(files_without_suffix)}.json"
+
+def scrape():
+    # gets the mariadb cve website
+    resp = requests.get("https://mariadb.com/docs/server/security/cve/community-server")
+
+    # parses it as html
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    return soup.find_all("div", attrs={"role": "row"})
+
+rows = scrape()
+
+out = []
+
+for row in rows:
+    items = list(row.stripped_strings)
+
+    # skip the table header
+    if items[0] == 'CVE ID (with cve.org link)':
+        continue
+
+    cleaned_row = []
+    skip_next = False
+    
+    # skips over the 'arrow-up-right' item
+    # and the next item after it
+    for item in items:
+        if skip_next:
+            skip_next = False
+            continue
+            
+        if "arrow-up-right" in item:
+            skip_next = True
+            continue
+            
+        cleaned_row.append(item)
+
+    versions = [i for i in cleaned_row[1:] if i!= ',']
+
+    if check_versions(versions):
+        out.append({cleaned_row[0] : versions})
+
+# diffing the json
+with open(f"{default_json_path}{get_last_result()}", 'r') as f:
+    f_contents = json.loads(f.read())
+    diff = jsondiff.diff(f_contents, out)
+    send_diff(diff)
+
+    if diff:
+        with open(f"{default_json_path}/last.diff", 'w') as f:
+            f.write(str(diff))
+
+
+# wiriting the new scraped json into the file for further use
+out_json = json.dumps(out, indent=4)
+with open(filename, 'w') as f:
+    f.write(out_json)
