@@ -7,6 +7,8 @@ from os import listdir
 import subprocess
 import json
 import jsondiff
+import argparse
+from sys import stderr
 
 # Holds the currently supported mariadb versions for
 # further filtering
@@ -21,6 +23,12 @@ creation_time = datetime.now()
 # set the filename of the output json to the current timestamp
 # formatted as int for easy comparison
 filename = f"{default_json_path}{int(creation_time.timestamp())}.json"
+
+def _init_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-s','--show-last-diff', action='store_true', help='show the last diff in a human readable format')
+
+    return parser
 
 # TODO: send the diff via email
 def send_diff(diff):
@@ -49,6 +57,31 @@ def scrape():
     soup = BeautifulSoup(resp.text, "html.parser")
 
     return soup.find_all("div", attrs={"role": "row"})
+
+parser = _init_args()
+args = parser.parse_args()
+
+if args.show_last_diff:
+    if not 'last.diff' in listdir(default_json_path):
+        print(f"The last.diff file was not found in {default_json_path}, please run the program again without any flags", file=stderr)
+        exit(1)
+    try:
+        with open(f"{default_json_path}last.diff", 'r') as f:
+            input = f.read()
+    except Exception as e:
+        print(f"Encountered an exception when opening the last.diff file: {e}", file=stderr)
+        exit(1)
+
+    # adds " around the insert part
+    # exchanges all () for []
+    # exchanges all '  for "
+    formatted_input = input.replace('insert','\"insert\"').replace('(','[').replace(')',']').replace('\'', '\"')
+
+    try:
+        print(json.dumps(json.loads(formatted_input), indent=4))
+    except Exception as e:
+        print(f"There was an issue while parsing the json from the diff: {e}", file=stderr)
+    exit(0)
 
 rows = scrape()
 
@@ -93,7 +126,7 @@ with open(f"{default_json_path}{get_last_result()}", 'r') as f:
             f.write(str(diff))
 
 
-# wiriting the new scraped json into the file for further use
+# writing the new scraped json into the file for further use
 out_json = json.dumps(out, indent=4)
 with open(filename, 'w') as f:
     f.write(out_json)
