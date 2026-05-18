@@ -9,6 +9,7 @@ import json
 import jsondiff
 import argparse
 from sys import stderr
+import re
 
 # Holds the currently supported mariadb versions for
 # further filtering
@@ -75,7 +76,8 @@ if args.show_last_diff:
     # adds " around the insert part
     # exchanges all () for []
     # exchanges all '  for "
-    formatted_input = input.replace('insert','\"insert\"').replace('(','[').replace(')',']').replace('\'', '\"')
+    formatted_input = input.replace('insert','\"insert\"').replace('delete','\"delete\"').replace('(','[').replace(')',']').replace('\'', '\"')
+    formatted_input = re.sub(r'(?<!["\w])([a-zA-Z0-9_]+)\s*:', r'"\1":', formatted_input)
 
     try:
         print(json.dumps(json.loads(formatted_input), indent=4))
